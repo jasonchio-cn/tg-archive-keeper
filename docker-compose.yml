@@ -1,0 +1,15 @@
+version: '3.8'
+
+services:
+  telegram-archive-keeper:
+    build: .
+    container_name: telegram-archive-keeper
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ./data:/data
+      - ./files:/files
+      - ./notes:/notes
+    environment:
+      - TZ=UTC

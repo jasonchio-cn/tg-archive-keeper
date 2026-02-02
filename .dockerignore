@@ -1,0 +1,14 @@
+.git
+.github
+
+data
+files
+notes
+
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache
+
+.env
