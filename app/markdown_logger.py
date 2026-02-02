@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 def get_markdown_path(timestamp: str) -> Path:
     """
     Get markdown file path for a given timestamp.
-    Format: /notes/YYYY-MM.md
+    Format: /data/notes/YYYY-MM.md
 
     Args:
         timestamp: ISO format timestamp string

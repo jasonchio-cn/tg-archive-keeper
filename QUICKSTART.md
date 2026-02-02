@@ -39,8 +39,8 @@ FILE_SIZE_THRESHOLD=20971520
 # 可选：本地路径
 DB_PATH=./data/app.db
 LOG_PATH=./data/logs
-FILES_PATH=./files
-NOTES_PATH=./notes
+FILES_PATH=./data/files
+NOTES_PATH=./data/notes
 ```
 
 ## 3. 运行测试（可选）
@@ -88,8 +88,8 @@ uv run python -m app.worker
 3. 查看日志输出
 4. 检查生成的文件：
    - `./data/app.db` - 数据库
-   - `./files/` - 下载的文件
-   - `./notes/` - Markdown 日志
+   - `./data/files/` - 下载的文件
+   - `./data/notes/` - Markdown 日志
 
 ## 目录结构
 
@@ -103,12 +103,12 @@ telegram-archive-keeper/
 │   └── logs/           # 日志文件
 │       ├── bot.log
 │       └── worker.log
-├── files/              # 下载的文件
-│   └── <source_type>/
-│       └── <source_id>_<title>/
-│           └── <file_unique_id>__<filename>
-└── notes/              # Markdown 日志
-    └── YYYY-MM.md
+│   ├── files/          # 下载的文件
+│   │   └── <source_type>/
+│   │       └── <source_id>_<title>/
+│   │           └── <file_unique_id>__<filename>
+│   └── notes/          # Markdown 日志
+│       └── YYYY-MM.md
 ```
 
 ## 常见问题

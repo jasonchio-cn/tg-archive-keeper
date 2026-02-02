@@ -9,7 +9,5 @@ services:
       - .env
     volumes:
       - ./data:/data
-      - ./files:/files
-      - ./notes:/notes
     environment:
       - TZ=UTC

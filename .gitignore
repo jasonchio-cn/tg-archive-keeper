@@ -16,8 +16,6 @@ build/
 
 # Data directories
 /data/
-/files/
-/notes/
 
 # IDE
 .vscode/

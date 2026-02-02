@@ -52,7 +52,7 @@ CREATE TABLE IF NOT EXISTS files (
   mime_type TEXT,
   original_name TEXT,
   -- 落地信息
-  local_path TEXT,                      -- 绝对路径（/files/...）
+  local_path TEXT,                      -- 绝对路径（/data/files/...）
   local_size INTEGER,
   sha256 TEXT,                          -- 可选：下载后算，提升完整性判断
   status TEXT NOT NULL DEFAULT 'NEW',   -- NEW|DOWNLOADED|FAILED

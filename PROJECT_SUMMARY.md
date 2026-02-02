@@ -43,12 +43,12 @@
 ## 关键特性实现
 
 ✅ SQLite 作为唯一数据库和队列
-✅ 按来源目录归档（/files/<type>/<id>_<title>/）
+✅ 按来源目录归档（/data/files/<type>/<id>_<title>/）
 ✅ file_unique_id 去重机制
 ✅ 20MB 阈值分流（Bot API vs tdl）
-✅ Markdown 月度日志（/notes/YYYY-MM.md）
+✅ Markdown 月度日志（/data/notes/YYYY-MM.md）
 ✅ 单容器双进程（supervisord）
-✅ 持久化卷挂载（/data, /files, /notes）
+✅ 持久化卷挂载（/data）
 ✅ 失败重试机制（指数退避）
 ✅ 容器重启恢复（stale job recovery）
 ✅ 原子操作（.part + rename）

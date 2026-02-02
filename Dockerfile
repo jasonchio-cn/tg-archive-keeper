@@ -28,13 +28,13 @@ COPY app/ ./app/
 COPY docker/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 
 # Create necessary directories
-RUN mkdir -p /data/logs /data/tdl_session /files /notes
+RUN mkdir -p /data/logs /data/tdl_session /data/files /data/notes
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
 
 # Expose volumes
-VOLUME ["/data", "/files", "/notes"]
+VOLUME ["/data"]
 
 # Run supervisord
 CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]

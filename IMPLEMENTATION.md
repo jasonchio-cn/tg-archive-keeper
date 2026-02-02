@@ -53,7 +53,7 @@
 
 **关键实现**：
 - `sanitize_filename()`：清理文件名，仅保留 `[A-Za-z0-9._-]`
-- `get_archive_path()`：生成归档路径 `/files/<type>/<id>_<title>/<unique_id>__<name>`
+- `get_archive_path()`：生成归档路径 `/data/files/<type>/<id>_<title>/<unique_id>__<name>`
 - `calculate_sha256()`：异步计算哈希
 - `atomic_write()`：临时文件 + rename 保证原子性
 
@@ -110,8 +110,8 @@ WHERE status IN ('QUEUED','RUNNING','RETRY');
 1. `messages` 表：2 条记录
 2. `message_files` 表：2 条记录（指向同一个 `file_id`）
 3. `files` 表：1 条记录
-4. `/files/` 目录：1 个文件
-5. `/notes/YYYY-MM.md`：2 条消息块 + 1 条 COMPLETE 块
+4. `/data/files/` 目录：1 个文件
+5. `/data/notes/YYYY-MM.md`：2 条消息块 + 1 条 COMPLETE 块
 
 **验证 SQL**：
 ```sql

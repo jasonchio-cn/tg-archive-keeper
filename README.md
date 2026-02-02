@@ -21,13 +21,13 @@
 /data/
   ├── app.db              # SQLite 数据库
   ├── tdl_session/        # tdl 用户会话（必须持久化）
-  └── logs/               # 日志文件
-/files/                   # 下载的文件
-  └── <source_type>/
-      └── <source_id>_<title>/
-          └── <file_unique_id>__<filename>
-/notes/                   # Markdown 归档日志
-  └── YYYY-MM.md
+  ├── logs/               # 日志文件
+  ├── files/              # 下载的文件
+  │   └── <source_type>/
+  │       └── <source_id>_<title>/
+  │           └── <file_unique_id>__<filename>
+  └── notes/              # Markdown 归档日志
+      └── YYYY-MM.md
 ```
 
 ### 数据库表结构
@@ -122,11 +122,11 @@ docker-compose logs -f
 1. 转发一个 >20MB 的文件给 Bot
 2. 再次转发同一个文件
 3. 验证：
-   - `data/app.db` 中 `messages` 表有 2 条记录
-   - `message_files` 表有 2 条引用记录
-   - `files` 表只有 1 条记录
-   - `/files/` 目录下只有 1 个实际文件
-   - `/notes/YYYY-MM.md` 中有 2 条消息记录，都指向同一个文件
+    - `data/app.db` 中 `messages` 表有 2 条记录
+    - `message_files` 表有 2 条引用记录
+    - `files` 表只有 1 条记录
+    - `/data/files/` 目录下只有 1 个实际文件
+    - `/data/notes/YYYY-MM.md` 中有 2 条消息记录，都指向同一个文件
 
 ### 测试 2：容器重启恢复
 
@@ -177,12 +177,12 @@ data/                       # 持久化数据（需挂载）
     ├── worker.log
     └── worker.err.log
 
-files/                      # 下载的文件（需挂载）
+data/files/                 # 下载的文件（持久化）
 └── <source_type>/
     └── <source_id>_<title>/
         └── <file_unique_id>__<filename>
 
-notes/                      # Markdown 日志（需挂载）
+data/notes/                 # Markdown 日志（持久化）
 └── YYYY-MM.md
 ```
 
@@ -200,12 +200,12 @@ notes/                      # Markdown 日志（需挂载）
 | `DB_PATH` | 数据库路径 | /data/app.db |
 | `TDL_SESSION_PATH` | tdl 会话路径 | /data/tdl_session |
 | `LOG_PATH` | 日志路径 | /data/logs |
-| `FILES_PATH` | 文件存储路径 | /files |
-| `NOTES_PATH` | Markdown 日志路径 | /notes |
+| `FILES_PATH` | 文件存储路径 | /data/files |
+| `NOTES_PATH` | Markdown 日志路径 | /data/notes |
 
 ### 文件命名规则
 
-- **目录**：`/files/<source_type>/<source_id>_<sanitized_title>/`
+- **目录**：`/data/files/<source_type>/<source_id>_<sanitized_title>/`
   - `source_type`：channel | group | supergroup | user | unknown
   - `source_id`：Telegram chat ID
   - `sanitized_title`：仅保留 `[A-Za-z0-9._-]`，最大 64 字符
@@ -252,10 +252,10 @@ SQLite 使用 WAL 模式，支持并发读写。如果遇到锁定问题：
 
 ```bash
 # 查看文件占用
-du -sh files/*
+ du -sh data/files/*
 
 # 删除旧文件（根据需要）
-find files/ -type f -mtime +365 -delete
+ find data/files/ -type f -mtime +365 -delete
 ```
 
 ## 开发说明
