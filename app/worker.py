@@ -6,7 +6,7 @@ import subprocess
 import os
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Dict, Any
 
 from app import config
 from app import database as db
@@ -37,15 +37,19 @@ def calculate_backoff(attempts: int) -> int:
 
 
 async def download_with_tdl(
-    tg_chat_id: int, tg_message_id: int, target_path: Path
+    target_path: Path,
+    source_info: Optional[Dict[str, Any]] = None,
+    original_message_id: Optional[int] = None,
+    source_chat_id: Optional[int] = None,
 ) -> tuple[bool, Optional[str]]:
     """
     Download file using tdl.
 
     Args:
-        tg_chat_id: Telegram chat ID where bot received the message
-        tg_message_id: Telegram message ID
         target_path: Final target path
+        source_info: Source information containing username for public channels
+        original_message_id: Original message ID (from forward_origin)
+        source_chat_id: Source chat ID (from forward_source)
 
     Returns:
         (success, error_message)
@@ -55,20 +59,52 @@ async def download_with_tdl(
         temp_dir = target_path.parent / ".tmp"
         temp_dir.mkdir(parents=True, exist_ok=True)
 
-        # tdl command
-        # Note: This is a placeholder. Actual tdl command may vary.
-        # Common usage: tdl dl -c <chat_id> -m <message_id> -o <output_dir>
+        # Build Telegram message URL
+        message_url = None
+
+        if original_message_id and source_chat_id:
+            if source_info and source_info.get("username"):
+                # Public channel with username: https://t.me/{username}/{message_id}
+                message_url = (
+                    f"https://t.me/{source_info['username']}/{original_message_id}"
+                )
+            else:
+                # Private channel/group: use c/ format
+                chat_id_str = str(source_chat_id)
+                if chat_id_str.startswith("-100"):
+                    # Private supergroup/channel: remove -100 prefix
+                    clean_chat_id = chat_id_str[4:]  # Remove "-100"
+                    message_url = (
+                        f"https://t.me/c/{clean_chat_id}/{original_message_id}"
+                    )
+                elif chat_id_str.startswith("-"):
+                    # Regular group
+                    clean_chat_id = chat_id_str[1:]  # Remove "-"
+                    message_url = (
+                        f"https://t.me/c/{clean_chat_id}/{original_message_id}"
+                    )
+                else:
+                    # Direct chat - this is tricky, but try c/ format
+                    message_url = f"https://t.me/c/{chat_id_str}/{original_message_id}"
+        else:
+            # Fallback: this may not work for forwarded messages
+            logger.warning("No original message info available, tdl download may fail")
+            return False, "No original message info available for tdl download"
+
+        logger.info(f"Built message URL: {message_url}")
+
+        # tdl command using URL format
+        # --continue: resume download without interaction
+        # --group: handle media groups/albums
         cmd = [
             "tdl",
             "dl",
-            "-c",
-            str(tg_chat_id),
-            "-m",
-            str(tg_message_id),
+            "-u",
+            message_url,
             "-d",
             str(temp_dir),
-            "--session",
-            str(config.TDL_SESSION_PATH),
+            "--continue",
+            "--group",
         ]
 
         logger.info(f"Running tdl command: {' '.join(cmd)}")
@@ -81,8 +117,12 @@ async def download_with_tdl(
         stdout, stderr = await process.communicate()
 
         if process.returncode != 0:
-            error_msg = stderr.decode("utf-8", errors="ignore")
-            logger.error(f"tdl failed with code {process.returncode}: {error_msg}")
+            stderr_msg = stderr.decode("utf-8", errors="ignore")
+            stdout_msg = stdout.decode("utf-8", errors="ignore")
+            error_msg = stderr_msg or stdout_msg or "(no output)"
+            logger.error(f"tdl failed with code {process.returncode}")
+            logger.error(f"tdl stderr: {stderr_msg}")
+            logger.error(f"tdl stdout: {stdout_msg}")
             return False, f"tdl exit code {process.returncode}: {error_msg}"
 
         logger.info(f"tdl output: {stdout.decode('utf-8', errors='ignore')}")
@@ -179,7 +219,10 @@ async def process_job(job: dict):
 
         # Download with tdl
         success, error = await download_with_tdl(
-            tg_chat_id=tg_chat_id, tg_message_id=tg_message_id, target_path=target_path
+            target_path=target_path,
+            source_info=source,
+            original_message_id=message.get("original_message_id"),
+            source_chat_id=source.get("source_chat_id") if source else None,
         )
 
         if success:

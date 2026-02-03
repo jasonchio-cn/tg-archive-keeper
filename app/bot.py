@@ -291,10 +291,20 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Get text
         text = message.text or message.caption
 
+        # Extract original message ID from forward_origin
+        original_message_id = None
+        if hasattr(message, "forward_origin") and message.forward_origin:
+            if hasattr(message.forward_origin, "message_id"):
+                original_message_id = message.forward_origin.message_id
+        elif hasattr(message, "forward_from_message_id"):
+            # Old API
+            original_message_id = message.forward_from_message_id
+
         # Insert message
         message_id = await db.insert_message(
             tg_chat_id=message.chat_id,
             tg_message_id=message.message_id,
+            original_message_id=original_message_id,
             from_user_id=message.from_user.id if message.from_user else None,
             received_at=received_at,
             forwarded_at=forwarded_at,

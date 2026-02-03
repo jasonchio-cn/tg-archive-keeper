@@ -27,11 +27,10 @@ STALE_JOB_MINUTES = int(os.getenv("STALE_JOB_MINUTES", "30"))
 
 # Paths
 DB_PATH = Path(os.getenv("DB_PATH", "/data/app.db"))
-TDL_SESSION_PATH = Path(os.getenv("TDL_SESSION_PATH", "/data/tdl_session"))
 LOG_PATH = Path(os.getenv("LOG_PATH", "/data/logs"))
 FILES_PATH = Path(os.getenv("FILES_PATH", "/data/files"))
 NOTES_PATH = Path(os.getenv("NOTES_PATH", "/data/notes"))
 
 # Ensure directories exist
-for path in [DB_PATH.parent, TDL_SESSION_PATH, LOG_PATH, FILES_PATH, NOTES_PATH]:
+for path in [DB_PATH.parent, LOG_PATH, FILES_PATH, NOTES_PATH]:
     path.mkdir(parents=True, exist_ok=True)

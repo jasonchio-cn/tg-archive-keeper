@@ -32,7 +32,8 @@ CREATE TABLE IF NOT EXISTS sources (
 CREATE TABLE IF NOT EXISTS messages (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   tg_chat_id INTEGER NOT NULL,          -- bot 收到消息所在 chat（通常是你的 private chat id）
-  tg_message_id INTEGER NOT NULL,       -- bot chat 内 message_id（worker 用它配合 tdl 下载）
+  tg_message_id INTEGER NOT NULL,       -- bot chat 内 message_id
+  original_message_id INTEGER,          -- 原始消息 ID（用于 tdl 下载）
   from_user_id INTEGER,                 -- 转发者（你）
   received_at TEXT NOT NULL,            -- bot 接收时间（UTC/本地均可，保持一致）
   forwarded_at TEXT,                    -- 若可得，记录原消息时间
@@ -140,6 +141,7 @@ async def upsert_source(
 async def insert_message(
     tg_chat_id: int,
     tg_message_id: int,
+    original_message_id: Optional[int],
     from_user_id: Optional[int],
     received_at: str,
     forwarded_at: Optional[str],
@@ -153,12 +155,13 @@ async def insert_message(
         cursor = await db.execute(
             """
             INSERT INTO messages 
-            (tg_chat_id, tg_message_id, from_user_id, received_at, forwarded_at, source_id, text, raw_json)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            (tg_chat_id, tg_message_id, original_message_id, from_user_id, received_at, forwarded_at, source_id, text, raw_json)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 tg_chat_id,
                 tg_message_id,
+                original_message_id,
                 from_user_id,
                 received_at,
                 forwarded_at,
@@ -166,36 +169,6 @@ async def insert_message(
                 text,
                 raw_json,
             ),
-        )
-        message_id = cursor.lastrowid
-        await db.commit()
-        return message_id
-
-
-async def upsert_file(
-    file_unique_id: str,
-    last_seen_file_id: str,
-    file_size: Optional[int],
-    mime_type: Optional[str],
-    original_name: Optional[str],
-) -> int:
-    """Insert or update a file, return file_id."""
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute("PRAGMA foreign_keys=ON")
-        cursor = await db.execute(
-            """
-            INSERT INTO files (file_unique_id, last_seen_file_id, file_size, mime_type, original_name)
-            VALUES (?, ?, ?, ?, ?)
-            ON CONFLICT(file_unique_id) 
-            DO UPDATE SET 
-                last_seen_file_id=excluded.last_seen_file_id,
-                file_size=COALESCE(excluded.file_size, file_size),
-                mime_type=COALESCE(excluded.mime_type, mime_type),
-                original_name=COALESCE(excluded.original_name, original_name),
-                updated_at=datetime('now')
-            RETURNING id
-            """,
-            (file_unique_id, last_seen_file_id, file_size, mime_type, original_name),
         )
         row = await cursor.fetchone()
         await db.commit()
