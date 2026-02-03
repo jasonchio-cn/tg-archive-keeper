@@ -471,25 +471,29 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Error processing message: {e}", exc_info=True)
 
 
-async def main():
-    """Main bot loop."""
-    logger.info("Starting Telegram Archive Bot")
-
-    # Initialize database
+async def post_init(application: Application) -> None:
+    """Initialize database after application starts."""
     await db.init_db()
 
-    # Create application
-    application = Application.builder().token(config.BOT_TOKEN).build()
+
+def main():
+    """Main bot entry point."""
+    logger.info("Starting Telegram Archive Bot")
+
+    # Create application with post_init hook
+    application = (
+        Application.builder().token(config.BOT_TOKEN).post_init(post_init).build()
+    )
 
     # Add handlers
     application.add_handler(
         MessageHandler(filters.ALL & ~filters.COMMAND, handle_message)
     )
 
-    # Start bot
+    # Start bot (this manages its own event loop)
     logger.info("Bot is running...")
-    await application.run_polling(allowed_updates=Update.ALL_TYPES)
+    application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
