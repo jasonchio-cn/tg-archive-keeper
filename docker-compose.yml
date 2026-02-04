@@ -7,18 +7,18 @@ services:
     restart: unless-stopped
     environment:
       TZ: Asia/Shanghai
-      BOT_TOKEN: ${BOT_TOKEN}
+      BOT_TOKEN: your_bot_token_here
       # Storage mode: local, webdav, or local,webdav
-      STORAGE_MODE: ${STORAGE_MODE:-local}
+      STORAGE_MODE: local
       # WebDAV settings (required if STORAGE_MODE includes webdav)
-      WEBDAV_URL: ${WEBDAV_URL:-}
-      WEBDAV_USERNAME: ${WEBDAV_USERNAME:-}
-      WEBDAV_PASSWORD: ${WEBDAV_PASSWORD:-}
+      WEBDAV_URL: 
+      WEBDAV_USERNAME: 
+      WEBDAV_PASSWORD: 
     volumes:
-      - ./data/task_db:/data/task_db
-      - ./data/files:/data/files
-      - ./data/notes:/data/notes
-      - ./data/logs:/data/logs
+      - /root/appdata/tg-archive-keeper/task_db:/data/task_db
+      - /root/appdata/tg-archive-keeper/files:/data/files
+      - /root/appdata/tg-archive-keeper/notes:/data/notes
+      - /root/appdata/tg-archive-keeper/logs:/data/logs
     networks:
       - tg-archive
     logging:
@@ -32,19 +32,19 @@ services:
     restart: unless-stopped
     environment:
       TZ: Asia/Shanghai
-      BOT_TOKEN: ${BOT_TOKEN}
+      BOT_TOKEN: your_bot_token_here
       # Storage mode: local, webdav, or local,webdav
-      STORAGE_MODE: ${STORAGE_MODE:-local}
+      STORAGE_MODE: local
       # WebDAV settings (required if STORAGE_MODE includes webdav)
-      WEBDAV_URL: ${WEBDAV_URL:-}
-      WEBDAV_USERNAME: ${WEBDAV_USERNAME:-}
-      WEBDAV_PASSWORD: ${WEBDAV_PASSWORD:-}
+      WEBDAV_URL: 
+      WEBDAV_USERNAME: 
+      WEBDAV_PASSWORD: 
     volumes:
-      - ./data/task_db:/data/task_db
-      - ./data/files:/data/files
-      - ./data/notes:/data/notes
-      - ./data/logs:/data/logs
-      - ./data/tdl_session:/root/.tdl
+      - /root/appdata/tg-archive-keeper/task_db:/data/task_db
+      - /root/appdata/tg-archive-keeper/files:/data/files
+      - /root/appdata/tg-archive-keeper/notes:/data/notes
+      - /root/appdata/tg-archive-keeper/logs:/data/logs
+      - /root/appdata/tg-archive-keeper/tdl_session:/root/.tdl
     networks:
       - tg-archive
     logging:
