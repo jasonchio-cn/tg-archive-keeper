@@ -182,12 +182,12 @@ async def insert_message_file(
     kind: str,
     caption: Optional[str] = None,
 ):
-    """Link a message to a file."""
+    """Link a message to a file. Ignores if already exists."""
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute("PRAGMA foreign_keys=ON")
         await db.execute(
             """
-            INSERT INTO message_files (message_id, file_id, tg_file_id, tg_file_unique_id, kind, caption)
+            INSERT OR IGNORE INTO message_files (message_id, file_id, tg_file_id, tg_file_unique_id, kind, caption)
             VALUES (?, ?, ?, ?, ?, ?)
             """,
             (message_id, file_id, tg_file_id, tg_file_unique_id, kind, caption),

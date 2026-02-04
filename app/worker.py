@@ -2,9 +2,7 @@
 
 import asyncio
 import logging
-import subprocess
 import os
-from datetime import datetime
 from pathlib import Path
 from typing import Optional, Dict, Any
 
@@ -194,8 +192,6 @@ async def process_job(job: dict):
         if not message:
             raise Exception(f"Message {message_id} not found in database")
 
-        tg_chat_id = message["tg_chat_id"]
-        tg_message_id = message["tg_message_id"]
         received_at = message["received_at"]
 
         # Get source info

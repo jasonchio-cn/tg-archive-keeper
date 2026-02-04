@@ -10,7 +10,6 @@ from pathlib import Path
 from telegram import Update, Message
 from telegram.ext import Application, MessageHandler, filters, ContextTypes
 from telegram.constants import ParseMode
-import aiofiles
 
 from app import config
 from app import database as db
@@ -387,7 +386,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
 
             # Decide: download now or queue
-            if file_size <= config.FILE_SIZE_THRESHOLD:
+            if file_size and file_size <= config.FILE_SIZE_THRESHOLD:
                 # Download now
                 logger.info(
                     f"Downloading small file {file_unique_id} ({file_size} bytes)"
