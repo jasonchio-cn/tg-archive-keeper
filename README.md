@@ -82,7 +82,8 @@ docker-compose logs -f worker
 
 ```
 data/
-├── app.db              # SQLite 数据库
+├── task_db/
+│   └── app.db          # SQLite 数据库
 ├── tdl_session/        # tdl 会话
 ├── logs/               # 日志
 ├── files/              # 下载的文件
@@ -123,7 +124,7 @@ docker run -it --rm -v $(pwd)/data/tdl_session:/root/.tdl \
 ### 数据库查询
 
 ```bash
-docker-compose exec bot sh -c "sqlite3 /data/app.db 'SELECT COUNT(*) FROM jobs WHERE status=\"QUEUED\"'"
+docker-compose exec bot sh -c "sqlite3 /data/task_db/app.db 'SELECT COUNT(*) FROM jobs WHERE status=\"QUEUED\"'"
 ```
 
 ## 开发

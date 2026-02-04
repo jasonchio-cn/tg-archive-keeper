@@ -26,11 +26,12 @@ MAX_ATTEMPTS = int(os.getenv("MAX_ATTEMPTS", "8"))
 STALE_JOB_MINUTES = int(os.getenv("STALE_JOB_MINUTES", "30"))
 
 # Paths
-DB_PATH = Path(os.getenv("DB_PATH", "/data/app.db"))
+DB_PATH = Path(os.getenv("DB_PATH", "/data/task_db/app.db"))
 LOG_PATH = Path(os.getenv("LOG_PATH", "/data/logs"))
 FILES_PATH = Path(os.getenv("FILES_PATH", "/data/files"))
 NOTES_PATH = Path(os.getenv("NOTES_PATH", "/data/notes"))
+TASK_DB_PATH = DB_PATH.parent
 
 # Ensure directories exist
-for path in [DB_PATH.parent, LOG_PATH, FILES_PATH, NOTES_PATH]:
+for path in [TASK_DB_PATH, LOG_PATH, FILES_PATH, NOTES_PATH]:
     path.mkdir(parents=True, exist_ok=True)
