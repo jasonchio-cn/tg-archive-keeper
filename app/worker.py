@@ -93,7 +93,6 @@ async def download_with_tdl(
 
         # tdl command using URL format
         # --continue: resume download without interaction
-        # --group: handle media groups/albums
         cmd = [
             "tdl",
             "dl",
@@ -102,7 +101,6 @@ async def download_with_tdl(
             "-d",
             str(temp_dir),
             "--continue",
-            "--group",
         ]
 
         logger.info(f"Running tdl command: {' '.join(cmd)}")
