@@ -2,29 +2,55 @@ version: '3.8'
 
 services:
   bot:
-    build:
-      context: .
-      dockerfile: Dockerfile.bot
+    image: jasonchio/tg-archive-bot:latest
     container_name: tg-archive-bot
     restart: unless-stopped
-    env_file:
-      - .env
-    volumes:
-      - ./data:/data
     environment:
-      - TZ=UTC
-    depends_on:
-      - worker
+      TZ: Asia/Shanghai
+      BOT_TOKEN: ${BOT_TOKEN}
+      # Storage mode: local, webdav, or local,webdav
+      STORAGE_MODE: ${STORAGE_MODE:-local}
+      # WebDAV settings (required if STORAGE_MODE includes webdav)
+      WEBDAV_URL: ${WEBDAV_URL:-}
+      WEBDAV_USERNAME: ${WEBDAV_USERNAME:-}
+      WEBDAV_PASSWORD: ${WEBDAV_PASSWORD:-}
+    volumes:
+      - ./data/task_db:/data/task_db
+      - ./data/files:/data/files
+      - ./data/notes:/data/notes
+      - ./data/logs:/data/logs
+    networks:
+      - tg-archive
+    logging:
+      driver: json-file
+      options:
+        max-size: 100m
 
   worker:
-    build:
-      context: .
-      dockerfile: Dockerfile.worker
+    image: jasonchio/tg-archive-worker:latest
     container_name: tg-archive-worker
     restart: unless-stopped
-    env_file:
-      - .env
-    volumes:
-      - ./data:/data
     environment:
-      - TZ=UTC
+      TZ: Asia/Shanghai
+      BOT_TOKEN: ${BOT_TOKEN}
+      # Storage mode: local, webdav, or local,webdav
+      STORAGE_MODE: ${STORAGE_MODE:-local}
+      # WebDAV settings (required if STORAGE_MODE includes webdav)
+      WEBDAV_URL: ${WEBDAV_URL:-}
+      WEBDAV_USERNAME: ${WEBDAV_USERNAME:-}
+      WEBDAV_PASSWORD: ${WEBDAV_PASSWORD:-}
+    volumes:
+      - ./data/task_db:/data/task_db
+      - ./data/files:/data/files
+      - ./data/notes:/data/notes
+      - ./data/logs:/data/logs
+      - ./data/tdl_session:/root/.tdl
+    networks:
+      - tg-archive
+    logging:
+      driver: json-file
+      options:
+        max-size: 100m
+
+networks:
+  tg-archive:
