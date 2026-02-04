@@ -28,6 +28,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Suppress noisy httpx logs
+logging.getLogger("httpx").setLevel(logging.WARNING)
+
 
 def parse_forward_source(
     message: Message,

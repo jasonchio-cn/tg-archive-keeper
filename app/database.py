@@ -170,9 +170,8 @@ async def insert_message(
                 raw_json,
             ),
         )
-        row = await cursor.fetchone()
         await db.commit()
-        return row[0]
+        return cursor.lastrowid
 
 
 async def insert_message_file(
