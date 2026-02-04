@@ -5,8 +5,8 @@ RUN apt-get update && apt-get install -y \
     wget \
     && rm -rf /var/lib/apt/lists/*
 
-# Install tdl (Telegram Downloader)
-RUN wget -O /tmp/tdl.tar.gz https://github.com/iyear/tdl/releases/download/v0.17.1/tdl_Linux_64bit.tar.gz \
+# Install tdl (Telegram Downloader) - latest version
+RUN wget -O /tmp/tdl.tar.gz https://github.com/iyear/tdl/releases/download/v0.20.1/tdl_Linux_64bit.tar.gz \
     && tar -xzf /tmp/tdl.tar.gz -C /usr/local/bin/ \
     && chmod +x /usr/local/bin/tdl \
     && rm /tmp/tdl.tar.gz

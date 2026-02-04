@@ -93,6 +93,7 @@ async def download_with_tdl(
 
         # tdl command using URL format
         # --continue: resume download without interaction
+        # --skip-same: skip files with same name and size
         cmd = [
             "tdl",
             "dl",
@@ -101,6 +102,7 @@ async def download_with_tdl(
             "-d",
             str(temp_dir),
             "--continue",
+            "--skip-same",
         ]
 
         logger.info(f"Running tdl command: {' '.join(cmd)}")
