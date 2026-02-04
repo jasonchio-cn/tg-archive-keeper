@@ -1,38 +1,15 @@
 version: '3.8'
 
 services:
-  bot:
-    image: jasonchio/tg-archive-bot:latest
-    container_name: tg-archive-bot
+  tg-archive-keeper:
+    image: jasonchio/tg-archive-keeper:latest
+    container_name: tg-archive-keeper
     restart: unless-stopped
     environment:
       TZ: Asia/Shanghai
       BOT_TOKEN: your_bot_token_here
-      # Storage mode: local, webdav, or local,webdav
-      STORAGE_MODE: local
-      # WebDAV settings (required if STORAGE_MODE includes webdav)
-      WEBDAV_URL: 
-      WEBDAV_USERNAME: 
-      WEBDAV_PASSWORD: 
-    volumes:
-      - /root/appdata/tg-archive-keeper/task_db:/data/task_db
-      - /root/appdata/tg-archive-keeper/files:/data/files
-      - /root/appdata/tg-archive-keeper/notes:/data/notes
-      - /root/appdata/tg-archive-keeper/logs:/data/logs
-    networks:
-      - tg-archive
-    logging:
-      driver: json-file
-      options:
-        max-size: 100m
-
-  worker:
-    image: jasonchio/tg-archive-worker:latest
-    container_name: tg-archive-worker
-    restart: unless-stopped
-    environment:
-      TZ: Asia/Shanghai
-      BOT_TOKEN: your_bot_token_here
+      # Download settings
+      MAX_CONCURRENT_DOWNLOADS: 4
       # Storage mode: local, webdav, or local,webdav
       STORAGE_MODE: local
       # WebDAV settings (required if STORAGE_MODE includes webdav)

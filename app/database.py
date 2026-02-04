@@ -1,10 +1,7 @@
 """Database module for SQLite operations."""
 
 import aiosqlite
-import json
-from datetime import datetime, timedelta
-from typing import Optional, Dict, Any, List, Tuple
-from pathlib import Path
+from typing import Optional, Dict, Any, List
 import logging
 
 from app.config import DB_PATH
@@ -28,18 +25,18 @@ CREATE TABLE IF NOT EXISTS sources (
   UNIQUE(source_type, source_chat_id)
 );
 
--- 每次你转发给 bot 的那条"消息记录"（即 bot 私聊里的一条 message）
+-- 每次你转发给 bot 的那条"消息记录"
 CREATE TABLE IF NOT EXISTS messages (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  tg_chat_id INTEGER NOT NULL,          -- bot 收到消息所在 chat（通常是你的 private chat id）
-  tg_message_id INTEGER NOT NULL,       -- bot chat 内 message_id
-  original_message_id INTEGER,          -- 原始消息 ID（用于 tdl 下载）
-  from_user_id INTEGER,                 -- 转发者（你）
-  received_at TEXT NOT NULL,            -- bot 接收时间（UTC/本地均可，保持一致）
-  forwarded_at TEXT,                    -- 若可得，记录原消息时间
+  tg_chat_id INTEGER NOT NULL,
+  tg_message_id INTEGER NOT NULL,
+  original_message_id INTEGER,
+  from_user_id INTEGER,
+  received_at TEXT NOT NULL,
+  forwarded_at TEXT,
   source_id INTEGER REFERENCES sources(id),
-  text TEXT,                            -- message.text 或 caption（建议都放这里）
-  raw_json TEXT NOT NULL,               -- 便于追溯/兼容未来字段
+  text TEXT,
+  raw_json TEXT NOT NULL,
   UNIQUE(tg_chat_id, tg_message_id)
 );
 
@@ -47,62 +44,66 @@ CREATE TABLE IF NOT EXISTS messages (
 CREATE TABLE IF NOT EXISTS files (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   file_unique_id TEXT NOT NULL,
-  -- 最后一次看到的 file_id（可变，但用于 Bot API getFile）
   last_seen_file_id TEXT,
   file_size INTEGER,
   mime_type TEXT,
   original_name TEXT,
-  -- 落地信息
-  local_path TEXT,                      -- 绝对路径（/data/files/...）
+  local_path TEXT,
   local_size INTEGER,
-  sha256 TEXT,                          -- 可选：下载后算，提升完整性判断
+  sha256 TEXT,
   status TEXT NOT NULL DEFAULT 'NEW',   -- NEW|DOWNLOADED|FAILED
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now')),
   UNIQUE(file_unique_id)
 );
 
--- 消息与文件的引用关系（每条转发都要记录，即使文件已存在）
+-- 消息与文件的引用关系
 CREATE TABLE IF NOT EXISTS message_files (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   message_id INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
   file_id INTEGER NOT NULL REFERENCES files(id),
-  tg_file_id TEXT,                      -- 当次消息里的 file_id（供排查）
-  tg_file_unique_id TEXT,               -- 冗余一份便于查询
-  kind TEXT NOT NULL,                   -- document|photo|video|audio|voice|animation|sticker|...
-  caption TEXT,                         -- 可选：如果你想保留原 caption 分离
+  tg_file_id TEXT,
+  tg_file_unique_id TEXT,
+  kind TEXT NOT NULL,
+  caption TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   UNIQUE(message_id, file_id, kind)
 );
 
--- Job 队列（只给 >20MB 的文件）
+-- Job 队列（简化版，无重试）
 CREATE TABLE IF NOT EXISTS jobs (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   file_id INTEGER NOT NULL REFERENCES files(id) ON DELETE CASCADE,
   message_id INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
-  status TEXT NOT NULL DEFAULT 'QUEUED',  -- QUEUED|RUNNING|DONE|RETRY|FAILED
-  attempts INTEGER NOT NULL DEFAULT 0,
-  last_error TEXT,
-  available_at TEXT NOT NULL DEFAULT (datetime('now')),
-  locked_by TEXT,
-  locked_at TEXT,
+  status TEXT NOT NULL DEFAULT 'QUEUED',  -- QUEUED|RUNNING|DONE|FAILED
+  error TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  completed_at TEXT
 );
 
--- 避免同一个 file 在 QUEUED/RUNNING 状态出现多个 job（SQLite 支持部分索引）
 CREATE UNIQUE INDEX IF NOT EXISTS idx_jobs_one_active_per_file
 ON jobs(file_id)
-WHERE status IN ('QUEUED','RUNNING','RETRY');
+WHERE status IN ('QUEUED','RUNNING');
 
-CREATE INDEX IF NOT EXISTS idx_jobs_pick
-ON jobs(status, available_at, created_at);
+-- 下载失败统计表
+CREATE TABLE IF NOT EXISTS download_failures (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  file_id INTEGER NOT NULL,
+  file_unique_id TEXT NOT NULL,
+  source_type TEXT,
+  source_chat_id INTEGER,
+  original_name TEXT,
+  error_type TEXT NOT NULL,        -- BOT_API_ONLY|TDL_ONLY|BOTH_FAILED
+  bot_api_error TEXT,
+  tdl_error TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
 
-CREATE INDEX IF NOT EXISTS idx_message_files_file
-ON message_files(file_id);
+CREATE INDEX IF NOT EXISTS idx_failures_error_type ON download_failures(error_type);
+CREATE INDEX IF NOT EXISTS idx_failures_created_at ON download_failures(created_at);
 
-CREATE INDEX IF NOT EXISTS idx_messages_received_at
-ON messages(received_at);
+CREATE INDEX IF NOT EXISTS idx_message_files_file ON message_files(file_id);
+CREATE INDEX IF NOT EXISTS idx_messages_received_at ON messages(received_at);
 """
 
 
@@ -277,15 +278,14 @@ async def get_file_by_unique_id(file_unique_id: str) -> Optional[Dict[str, Any]]
 async def insert_job(file_id: int, message_id: int) -> Optional[int]:
     """
     Insert a job for a file. Returns job_id if inserted, None if already exists.
-    The unique index prevents duplicate active jobs for the same file.
     """
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute("PRAGMA foreign_keys=ON")
         try:
             cursor = await db.execute(
                 """
-                INSERT INTO jobs (file_id, message_id, status, available_at)
-                VALUES (?, ?, 'QUEUED', datetime('now'))
+                INSERT INTO jobs (file_id, message_id, status)
+                VALUES (?, ?, 'QUEUED')
                 """,
                 (file_id, message_id),
             )
@@ -293,66 +293,38 @@ async def insert_job(file_id: int, message_id: int) -> Optional[int]:
             await db.commit()
             return job_id
         except aiosqlite.IntegrityError:
-            # Job already exists for this file
             return None
 
 
-async def pick_and_lock_job(worker_id: str) -> Optional[Dict[str, Any]]:
-    """
-    Atomically pick and lock a job. Returns job dict or None.
-    """
+async def get_pending_jobs() -> List[Dict[str, Any]]:
+    """Get all QUEUED jobs."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            """
+            SELECT id, file_id, message_id
+            FROM jobs
+            WHERE status = 'QUEUED'
+            ORDER BY created_at
+            """
+        )
+        rows = await cursor.fetchall()
+        return [dict(row) for row in rows]
+
+
+async def update_job_running(job_id: int):
+    """Mark job as running."""
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute("PRAGMA foreign_keys=ON")
-        db.row_factory = aiosqlite.Row
-
-        # Start immediate transaction
-        await db.execute("BEGIN IMMEDIATE")
-
-        try:
-            # Pick oldest available job
-            cursor = await db.execute(
-                """
-                SELECT id, file_id, message_id, attempts
-                FROM jobs
-                WHERE status IN ('QUEUED', 'RETRY') 
-                  AND available_at <= datetime('now')
-                ORDER BY created_at
-                LIMIT 1
-                """
-            )
-            row = await cursor.fetchone()
-
-            if not row:
-                await db.commit()
-                return None
-
-            job_id = row[0]
-
-            # Lock it
-            await db.execute(
-                """
-                UPDATE jobs
-                SET status='RUNNING', 
-                    locked_by=?, 
-                    locked_at=datetime('now'),
-                    attempts=attempts+1,
-                    updated_at=datetime('now')
-                WHERE id=? AND status IN ('QUEUED', 'RETRY')
-                """,
-                (worker_id, job_id),
-            )
-
-            if db.total_changes == 0:
-                # Someone else got it
-                await db.commit()
-                return None
-
-            await db.commit()
-            return dict(row)
-
-        except Exception as e:
-            await db.rollback()
-            raise
+        await db.execute(
+            """
+            UPDATE jobs
+            SET status='RUNNING'
+            WHERE id=?
+            """,
+            (job_id,),
+        )
+        await db.commit()
 
 
 async def update_job_done(job_id: int):
@@ -362,7 +334,7 @@ async def update_job_done(job_id: int):
         await db.execute(
             """
             UPDATE jobs
-            SET status='DONE', updated_at=datetime('now')
+            SET status='DONE', completed_at=datetime('now')
             WHERE id=?
             """,
             (job_id,),
@@ -370,32 +342,14 @@ async def update_job_done(job_id: int):
         await db.commit()
 
 
-async def update_job_retry(job_id: int, error: str, backoff_seconds: int):
-    """Mark job for retry with backoff."""
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute("PRAGMA foreign_keys=ON")
-        await db.execute(
-            """
-            UPDATE jobs
-            SET status='RETRY',
-                last_error=?,
-                available_at=datetime('now', '+' || ? || ' seconds'),
-                updated_at=datetime('now')
-            WHERE id=?
-            """,
-            (error, backoff_seconds, job_id),
-        )
-        await db.commit()
-
-
 async def update_job_failed(job_id: int, error: str):
-    """Mark job as permanently failed."""
+    """Mark job as failed."""
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute("PRAGMA foreign_keys=ON")
         await db.execute(
             """
             UPDATE jobs
-            SET status='FAILED', last_error=?, updated_at=datetime('now')
+            SET status='FAILED', error=?, completed_at=datetime('now')
             WHERE id=?
             """,
             (error, job_id),
@@ -403,27 +357,70 @@ async def update_job_failed(job_id: int, error: str):
         await db.commit()
 
 
-async def recover_stale_jobs(stale_minutes: int) -> int:
-    """
-    Recover stale RUNNING jobs (locked too long).
-    Returns count of recovered jobs.
-    """
+async def insert_download_failure(
+    file_id: int,
+    file_unique_id: str,
+    source_type: Optional[str],
+    source_chat_id: Optional[int],
+    original_name: Optional[str],
+    error_type: str,
+    bot_api_error: Optional[str],
+    tdl_error: Optional[str],
+):
+    """Record a download failure for statistics."""
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute("PRAGMA foreign_keys=ON")
-        cursor = await db.execute(
+        await db.execute(
             """
-            UPDATE jobs
-            SET status='RETRY',
-                available_at=datetime('now'),
-                updated_at=datetime('now')
-            WHERE status='RUNNING'
-              AND locked_at < datetime('now', '-' || ? || ' minutes')
+            INSERT INTO download_failures 
+            (file_id, file_unique_id, source_type, source_chat_id, original_name, error_type, bot_api_error, tdl_error)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (stale_minutes,),
+            (
+                file_id,
+                file_unique_id,
+                source_type,
+                source_chat_id,
+                original_name,
+                error_type,
+                bot_api_error,
+                tdl_error,
+            ),
         )
-        count = cursor.rowcount
         await db.commit()
-        return count
+
+
+async def get_failure_stats(month: Optional[str] = None) -> Dict[str, int]:
+    """
+    Get download failure statistics.
+
+    Args:
+        month: Optional month filter in format 'YYYY-MM'
+
+    Returns:
+        Dict with error_type counts
+    """
+    async with aiosqlite.connect(DB_PATH) as db:
+        if month:
+            cursor = await db.execute(
+                """
+                SELECT error_type, COUNT(*) as count
+                FROM download_failures
+                WHERE strftime('%Y-%m', created_at) = ?
+                GROUP BY error_type
+                """,
+                (month,),
+            )
+        else:
+            cursor = await db.execute(
+                """
+                SELECT error_type, COUNT(*) as count
+                FROM download_failures
+                GROUP BY error_type
+                """
+            )
+        rows = await cursor.fetchall()
+        return {row[0]: row[1] for row in rows}
 
 
 async def get_message_by_id(message_id: int) -> Optional[Dict[str, Any]]:
@@ -442,20 +439,3 @@ async def get_source_by_id(source_id: int) -> Optional[Dict[str, Any]]:
         cursor = await db.execute("SELECT * FROM sources WHERE id=?", (source_id,))
         row = await cursor.fetchone()
         return dict(row) if row else None
-
-
-async def get_message_files(message_id: int) -> List[Dict[str, Any]]:
-    """Get all files for a message with file details."""
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-        cursor = await db.execute(
-            """
-            SELECT mf.*, f.*
-            FROM message_files mf
-            JOIN files f ON mf.file_id = f.id
-            WHERE mf.message_id = ?
-            """,
-            (message_id,),
-        )
-        rows = await cursor.fetchall()
-        return [dict(row) for row in rows]

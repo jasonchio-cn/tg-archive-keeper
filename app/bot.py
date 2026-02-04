@@ -1,4 +1,4 @@
-"""Telegram Bot process."""
+"""Telegram Bot process - Single service with integrated download."""
 
 import asyncio
 import json
@@ -7,9 +7,9 @@ from datetime import datetime
 from typing import Optional, List, Dict, Any, Tuple
 from pathlib import Path
 
-from telegram import Update, Message
+from telegram import Update, Message, Bot
 from telegram.ext import Application, MessageHandler, filters, ContextTypes
-from telegram.constants import ParseMode
+from telegram.error import TelegramError
 
 from app import config
 from app import database as db
@@ -29,6 +29,212 @@ logger = logging.getLogger(__name__)
 
 # Suppress noisy httpx logs
 logging.getLogger("httpx").setLevel(logging.WARNING)
+
+# Download semaphore for concurrency control
+download_semaphore = asyncio.Semaphore(config.MAX_CONCURRENT_DOWNLOADS)
+
+# Track background tasks
+background_tasks: set = set()
+
+
+# ============ Download Functions ============
+
+
+async def download_with_bot_api(
+    bot: Bot,
+    file_id: str,
+    target_path: Path,
+) -> Tuple[bool, Optional[str]]:
+    """Try to download file using Bot API."""
+    try:
+        file = await bot.get_file(file_id)
+        temp_path = fm.get_temp_path(target_path)
+        temp_path.parent.mkdir(parents=True, exist_ok=True)
+        await file.download_to_drive(custom_path=str(temp_path))
+        await fm.atomic_write(temp_path, target_path)
+        return True, None
+    except TelegramError as e:
+        return False, str(e)
+    except Exception as e:
+        return False, str(e)
+
+
+async def download_file(
+    bot: Bot,
+    file_info: Dict[str, Any],
+    target_path: Path,
+    source_info: Optional[Dict[str, Any]],
+    original_message_id: Optional[int],
+) -> Tuple[bool, Optional[str], Optional[str], Optional[str]]:
+    """
+    Download file: try Bot API first, then tdl.
+
+    Returns:
+        (success, method, bot_api_error, tdl_error)
+        method: "bot_api" | "tdl" | "failed"
+    """
+    file_id = file_info["file_id"]
+
+    # 1. Try Bot API
+    success, bot_error = await download_with_bot_api(bot, file_id, target_path)
+    if success:
+        return True, "bot_api", None, None
+
+    logger.info(f"Bot API failed: {bot_error}, trying tdl...")
+
+    # 2. Try tdl
+    message_url = fm.build_message_url(
+        source_username=source_info.get("username") if source_info else None,
+        source_chat_id=source_info.get("source_chat_id") if source_info else 0,
+        original_message_id=original_message_id,
+    )
+
+    if not message_url:
+        return False, "failed", bot_error, "Cannot build message URL"
+
+    success, tdl_error = await fm.download_with_tdl(message_url, target_path)
+    if success:
+        return True, "tdl", bot_error, None
+
+    # 3. Both failed
+    return False, "failed", bot_error, tdl_error
+
+
+# ============ Background Download Task ============
+
+
+async def process_download_job(
+    bot: Bot,
+    job_id: int,
+    file_id: int,
+    message_id: int,
+):
+    """Process a single download job in background."""
+    async with download_semaphore:
+        try:
+            await db.update_job_running(job_id)
+
+            # Get file and message info
+            file_record = await db.get_file_by_id(file_id)
+            message = await db.get_message_by_id(message_id)
+
+            if not file_record or not message:
+                await db.update_job_failed(job_id, "Record not found")
+                return
+
+            # Get source info
+            source = None
+            if message.get("source_id"):
+                source = await db.get_source_by_id(message["source_id"])
+            if not source:
+                source = {"source_type": "unknown", "source_chat_id": 0}
+
+            # Generate target path
+            _, target_path = fm.get_archive_path(
+                source_type=source["source_type"],
+                source_chat_id=source["source_chat_id"],
+                title=source.get("title"),
+                file_unique_id=file_record["file_unique_id"],
+                original_name=file_record["original_name"],
+            )
+
+            # Download
+            file_info = {
+                "file_id": file_record["last_seen_file_id"],
+                "file_unique_id": file_record["file_unique_id"],
+            }
+
+            download_result = await download_file(
+                bot=bot,
+                file_info=file_info,
+                target_path=target_path,
+                source_info=source,
+                original_message_id=message.get("original_message_id"),
+            )
+
+            success, method, bot_error, tdl_error = (
+                download_result[0],
+                download_result[1],
+                download_result[2],
+                download_result[3],
+            )
+
+            if success:
+                # Calculate hash and save
+                actual_size = target_path.stat().st_size
+                sha256 = await fm.calculate_sha256(target_path)
+
+                await fm.save_file(target_path)
+
+                await db.update_file_downloaded(
+                    file_id=file_id,
+                    local_path=str(target_path),
+                    local_size=actual_size,
+                    sha256=sha256,
+                )
+                await db.update_job_done(job_id)
+
+                logger.info(f"Job {job_id} completed via {method}")
+
+                # Log to markdown
+                await md.append_job_complete(
+                    job_id=job_id,
+                    message_id=message_id,
+                    file_unique_id=file_record["file_unique_id"],
+                    local_path=str(target_path),
+                    local_size=actual_size,
+                    method=method,
+                )
+            else:
+                # Record failure
+                error_type = "BOTH_FAILED"
+                if not bot_error:
+                    error_type = "TDL_ONLY"
+                elif not tdl_error:
+                    error_type = "BOT_API_ONLY"
+
+                await db.insert_download_failure(
+                    file_id=file_id,
+                    file_unique_id=file_record["file_unique_id"],
+                    source_type=source["source_type"],
+                    source_chat_id=source["source_chat_id"],
+                    original_name=file_record["original_name"],
+                    error_type=error_type,
+                    bot_api_error=bot_error,
+                    tdl_error=tdl_error,
+                )
+
+                await db.update_file_failed(file_id)
+                await db.update_job_failed(
+                    job_id, f"Bot API: {bot_error}; tdl: {tdl_error}"
+                )
+
+                logger.error(f"Job {job_id} failed: {error_type}")
+
+                # Log to markdown
+                await md.append_job_failed(
+                    job_id=job_id,
+                    message_id=message_id,
+                    file_unique_id=file_record["file_unique_id"],
+                    error_type=error_type,
+                    bot_api_error=bot_error,
+                    tdl_error=tdl_error,
+                    received_at=message["received_at"],
+                )
+
+        except Exception as e:
+            logger.error(f"Job {job_id} exception: {e}", exc_info=True)
+            await db.update_job_failed(job_id, str(e))
+
+
+def schedule_download(bot: Bot, job_id: int, file_id: int, message_id: int):
+    """Schedule a download job as background task."""
+    task = asyncio.create_task(process_download_job(bot, job_id, file_id, message_id))
+    background_tasks.add(task)
+    task.add_done_callback(background_tasks.discard)
+
+
+# ============ Message Handler ============
 
 
 def parse_forward_source(
@@ -226,43 +432,9 @@ def extract_file_info(message: Message) -> List[Dict[str, Any]]:
     return files
 
 
-async def download_small_file(
-    bot_token: str, file_id: str, target_path: Path
-) -> Tuple[bool, Optional[str]]:
-    """
-    Download file using Bot API.
-
-    Returns:
-        (success, error_message)
-    """
-    try:
-        from telegram import Bot
-
-        bot = Bot(token=bot_token)
-
-        # Get file
-        file = await bot.get_file(file_id)
-
-        # Download to temp file
-        temp_path = fm.get_temp_path(target_path)
-        temp_path.parent.mkdir(parents=True, exist_ok=True)
-
-        await file.download_to_drive(custom_path=str(temp_path))
-
-        # Atomic move
-        await fm.atomic_write(temp_path, target_path)
-
-        return True, None
-
-    except Exception as e:
-        logger.error(f"Failed to download file {file_id}: {e}")
-        return False, str(e)
-
-
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle incoming message."""
     message = update.message
-
     if not message:
         return
 
@@ -324,14 +496,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         attachments = []
         for file_info in file_infos:
             file_unique_id = file_info["file_unique_id"]
-            file_id_tg = file_info["file_id"]
-            file_size = file_info["file_size"]
 
             # Upsert file
             file_id = await db.upsert_file(
                 file_unique_id=file_unique_id,
-                last_seen_file_id=file_id_tg,
-                file_size=file_size,
+                last_seen_file_id=file_info["file_id"],
+                file_size=file_info["file_size"],
                 mime_type=file_info["mime_type"],
                 original_name=file_info["original_name"],
             )
@@ -340,7 +510,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await db.insert_message_file(
                 message_id=message_id,
                 file_id=file_id,
-                tg_file_id=file_id_tg,
+                tg_file_id=file_info["file_id"],
                 tg_file_unique_id=file_unique_id,
                 kind=file_info["kind"],
                 caption=message.caption,
@@ -356,13 +526,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 and file_record["local_path"]
             ):
                 local_path = Path(file_record["local_path"])
-                if await fm.verify_file(local_path, file_size):
+                if await fm.verify_file(local_path):
                     logger.info(f"File {file_unique_id} already downloaded, skipping")
                     attachments.append(
                         {
                             "kind": file_info["kind"],
                             "original_name": file_info["original_name"],
-                            "file_size": file_size,
+                            "file_size": file_info["file_size"],
                             "file_unique_id": file_unique_id,
                             "status": "DOWNLOADED",
                             "local_path": str(local_path),
@@ -374,10 +544,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # Get source for path generation
             source = await db.get_source_by_id(source_id) if source_id else None
             if not source:
-                source = {"source_type": "unknown", "source_chat_id": 0, "title": None}
+                source = {"source_type": "unknown", "source_chat_id": 0}
 
             # Generate target path
-            archive_dir, target_path = fm.get_archive_path(
+            _, target_path = fm.get_archive_path(
                 source_type=source["source_type"],
                 source_chat_id=source["source_chat_id"],
                 title=source["title"],
@@ -385,88 +555,39 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 original_name=file_info["original_name"],
             )
 
-            # Decide: download now or queue
-            if file_size and file_size <= config.FILE_SIZE_THRESHOLD:
-                # Download now
-                logger.info(
-                    f"Downloading small file {file_unique_id} ({file_size} bytes)"
+            # Create job and schedule download
+            job_id = await db.insert_job(file_id=file_id, message_id=message_id)
+
+            if job_id:
+                schedule_download(
+                    bot=context.bot,
+                    job_id=job_id,
+                    file_id=file_id,
+                    message_id=message_id,
                 )
-                success, error = await download_small_file(
-                    bot_token=config.BOT_TOKEN,
-                    file_id=file_id_tg,
-                    target_path=target_path,
+                logger.info(f"Scheduled download job {job_id}")
+                attachments.append(
+                    {
+                        "kind": file_info["kind"],
+                        "original_name": file_info["original_name"],
+                        "file_size": file_info["file_size"],
+                        "file_unique_id": file_unique_id,
+                        "status": "QUEUED",
+                        "job_id": job_id,
+                    }
                 )
-
-                if success:
-                    # Verify and calculate hash
-                    actual_size = target_path.stat().st_size
-                    sha256 = await fm.calculate_sha256(target_path)
-
-                    # Save file according to storage mode
-                    save_success, save_error = await fm.save_file(target_path)
-                    if not save_success:
-                        logger.warning(f"Storage failed: {save_error}")
-
-                    # Update database
-                    await db.update_file_downloaded(
-                        file_id=file_id,
-                        local_path=str(target_path),
-                        local_size=actual_size,
-                        sha256=sha256,
-                    )
-
-                    logger.info(f"Downloaded file to {target_path}")
-
-                    attachments.append(
-                        {
-                            "kind": file_info["kind"],
-                            "original_name": file_info["original_name"],
-                            "file_size": file_size,
-                            "file_unique_id": file_unique_id,
-                            "status": "DOWNLOADED",
-                            "local_path": str(target_path),
-                        }
-                    )
-                else:
-                    logger.error(f"Failed to download file: {error}")
-                    attachments.append(
-                        {
-                            "kind": file_info["kind"],
-                            "original_name": file_info["original_name"],
-                            "file_size": file_size,
-                            "file_unique_id": file_unique_id,
-                            "status": "FAILED",
-                        }
-                    )
             else:
-                # Queue for worker
-                logger.info(f"Queueing large file {file_unique_id} ({file_size} bytes)")
-                job_id = await db.insert_job(file_id=file_id, message_id=message_id)
-
-                if job_id:
-                    logger.info(f"Created job {job_id} for file {file_unique_id}")
-                    attachments.append(
-                        {
-                            "kind": file_info["kind"],
-                            "original_name": file_info["original_name"],
-                            "file_size": file_size,
-                            "file_unique_id": file_unique_id,
-                            "status": "QUEUED",
-                            "job_id": job_id,
-                        }
-                    )
-                else:
-                    logger.info(f"Job already exists for file {file_unique_id}")
-                    attachments.append(
-                        {
-                            "kind": file_info["kind"],
-                            "original_name": file_info["original_name"],
-                            "file_size": file_size,
-                            "file_unique_id": file_unique_id,
-                            "status": "QUEUED",
-                            "job_id": None,
-                        }
-                    )
+                logger.info(f"Job already exists for file {file_unique_id}")
+                attachments.append(
+                    {
+                        "kind": file_info["kind"],
+                        "original_name": file_info["original_name"],
+                        "file_size": file_info["file_size"],
+                        "file_unique_id": file_unique_id,
+                        "status": "QUEUED",
+                        "job_id": None,
+                    }
+                )
 
         # Write to markdown
         await md.append_message_entry(
@@ -488,26 +609,38 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Error processing message: {e}", exc_info=True)
 
 
-async def post_init(application: Application) -> None:
-    """Initialize database after application starts."""
+# ============ Startup ============
+
+
+async def post_init(application: Application):
+    """Initialize on startup."""
     await db.init_db()
+
+    # Resume pending jobs
+    pending_jobs = await db.get_pending_jobs()
+    for job in pending_jobs:
+        schedule_download(
+            bot=application.bot,
+            job_id=job["id"],
+            file_id=job["file_id"],
+            message_id=job["message_id"],
+        )
+    if pending_jobs:
+        logger.info(f"Resumed {len(pending_jobs)} pending jobs")
 
 
 def main():
     """Main bot entry point."""
-    logger.info("Starting Telegram Archive Bot")
+    logger.info("Starting Telegram Archive Keeper")
 
-    # Create application with post_init hook
     application = (
         Application.builder().token(config.BOT_TOKEN).post_init(post_init).build()
     )
 
-    # Add handlers
     application.add_handler(
         MessageHandler(filters.ALL & ~filters.COMMAND, handle_message)
     )
 
-    # Start bot (this manages its own event loop)
     logger.info("Bot is running...")
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 

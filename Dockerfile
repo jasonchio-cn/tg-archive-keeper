@@ -5,7 +5,7 @@ RUN apt-get update && apt-get install -y \
     wget \
     && rm -rf /var/lib/apt/lists/*
 
-# Install tdl (Telegram Downloader) - latest version
+# Install tdl (Telegram Downloader) v0.20.1
 RUN wget -O /tmp/tdl.tar.gz https://github.com/iyear/tdl/releases/download/v0.20.1/tdl_Linux_64bit.tar.gz \
     && tar -xzf /tmp/tdl.tar.gz -C /usr/local/bin/ \
     && chmod +x /usr/local/bin/tdl \
@@ -21,10 +21,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY app/ ./app/
 
 # Create necessary directories
-RUN mkdir -p /data/logs /data/tdl_session /data/files /data/notes
+RUN mkdir -p /data/logs /data/task_db /data/files /data/notes
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
 
-# Run worker
-CMD ["python", "-m", "app.worker"]
+# Run bot
+CMD ["python", "-m", "app.bot"]

@@ -37,13 +37,13 @@ async def append_message_entry(
     attachments: List[Dict[str, Any]],
 ):
     """
-    Append a message entry to the markdown log.
+    Append a message entry to markdown log.
 
     Args:
         message_id: Database message ID
         tg_chat_id: Telegram chat ID
         tg_message_id: Telegram message ID
-        received_at: When bot received the message
+        received_at: When bot received message
         forwarded_at: Original message timestamp (if available)
         source_type: channel|group|supergroup|user|unknown
         source_chat_id: Source chat ID
@@ -119,11 +119,12 @@ async def append_job_complete(
     file_unique_id: str,
     local_path: str,
     local_size: int,
-    sha256: Optional[str],
-    received_at: str,
+    method: str,
+    sha256: Optional[str] = None,
+    received_at: str = None,
 ):
     """
-    Append a job completion entry to the markdown log.
+    Append a job completion entry to markdown log.
 
     Args:
         job_id: Job ID
@@ -131,10 +132,13 @@ async def append_job_complete(
         file_unique_id: File unique ID
         local_path: Downloaded file path
         local_size: File size
+        method: "bot_api" or "tdl"
         sha256: SHA256 hash (optional)
         received_at: Original message timestamp (for determining which month file)
     """
-    md_path = get_markdown_path(received_at)
+    md_path = get_markdown_path(
+        received_at if received_at else datetime.utcnow().isoformat() + "Z"
+    )
 
     now = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%SZ")
 
@@ -142,7 +146,7 @@ async def append_job_complete(
     lines.append(
         f"\n### COMPLETE {now} job:{job_id} msg:{message_id} file:{file_unique_id}\n"
     )
-    lines.append(f"- status=DOWNLOADED path={local_path} size={local_size}")
+    lines.append(f"- method={method} path={local_path} size={local_size}")
 
     if sha256:
         lines.append(f" sha256={sha256}")
@@ -158,12 +162,29 @@ async def append_job_complete(
 
 
 async def append_job_failed(
-    job_id: int, message_id: int, file_unique_id: str, error: str, received_at: str
+    job_id: int,
+    message_id: int,
+    file_unique_id: str,
+    error_type: Optional[str],
+    bot_api_error: Optional[str],
+    tdl_error: Optional[str],
+    received_at: str = None,
 ):
     """
-    Append a job failure entry to the markdown log.
+    Append a job failure entry to markdown log.
+
+    Args:
+        job_id: Job ID
+        message_id: Related message ID
+        file_unique_id: File unique ID
+        error_type: "BOT_API_ONLY" | "TDL_ONLY" | "BOTH_FAILED"
+        bot_api_error: Bot API error message
+        tdl_error: tdl error message
+        received_at: Original message timestamp
     """
-    md_path = get_markdown_path(received_at)
+    md_path = get_markdown_path(
+        received_at if received_at else datetime.utcnow().isoformat() + "Z"
+    )
 
     now = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%SZ")
 
@@ -171,7 +192,15 @@ async def append_job_failed(
     lines.append(
         f"\n### FAILED {now} job:{job_id} msg:{message_id} file:{file_unique_id}\n"
     )
-    lines.append(f"- error: {error}\n\n")
+
+    if error_type:
+        lines.append(f"- error_type={error_type}")
+    if bot_api_error:
+        lines.append(f"- bot_api_error: {bot_api_error}")
+    if tdl_error:
+        lines.append(f"- tdl_error: {tdl_error}")
+
+    lines.append("\n\n")
 
     # Append to file
     md_path.parent.mkdir(parents=True, exist_ok=True)
@@ -179,3 +208,30 @@ async def append_job_failed(
         await f.writelines(lines)
 
     logger.info(f"Appended job failure to {md_path}")
+
+
+async def append_failure_stats(month: str, stats: Dict[str, int]):
+    """
+    Append monthly failure statistics summary.
+
+    Args:
+        month: Month in format "YYYY-MM"
+        stats: Dict with error_type counts
+    """
+    md_path = NOTES_PATH / f"{month}.md"
+
+    lines = [
+        f"\n## 下载失败统计 ({month})\n",
+        "| 错误类型 | 数量 |",
+        "|---------|------|",
+    ]
+    for error_type, count in stats.items():
+        lines.append(f"| {error_type} | {count} |")
+    lines.append("\n")
+
+    # Append to file
+    md_path.parent.mkdir(parents=True, exist_ok=True)
+    async with aiofiles.open(md_path, "a", encoding="utf-8") as f:
+        await f.writelines([l + "\n" for l in lines])
+
+    logger.info(f"Appended failure stats to {md_path}")
