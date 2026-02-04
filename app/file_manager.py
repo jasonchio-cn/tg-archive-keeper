@@ -3,11 +3,18 @@
 import re
 import hashlib
 import aiofiles
+import aiohttp
 from pathlib import Path
 from typing import Optional, Tuple
 import logging
 
-from app.config import FILES_PATH
+from app.config import (
+    FILES_PATH,
+    WEBDAV_URL,
+    WEBDAV_USERNAME,
+    WEBDAV_PASSWORD,
+    WEBDAV_ENABLED,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -158,3 +165,91 @@ async def atomic_write(temp_path: Path, final_path: Path):
 def get_temp_path(final_path: Path) -> Path:
     """Get temporary path for downloading."""
     return final_path.with_suffix(final_path.suffix + ".part")
+
+
+def get_webdav_path(local_path: Path) -> str:
+    """
+    Convert local path to WebDAV remote path.
+
+    Local: /data/files/channel/-1001234/file.mp4
+    WebDAV: /channel/-1001234/file.mp4
+    """
+    # Get relative path from FILES_PATH
+    try:
+        relative = local_path.relative_to(FILES_PATH)
+        return "/" + str(relative).replace("\\", "/")
+    except ValueError:
+        # If not under FILES_PATH, use filename only
+        return "/" + local_path.name
+
+
+async def upload_to_webdav(local_path: Path) -> Tuple[bool, Optional[str]]:
+    """
+    Upload file to WebDAV server.
+
+    Args:
+        local_path: Local file path
+
+    Returns:
+        (success, error_message)
+    """
+    if not WEBDAV_ENABLED:
+        return True, None  # Skip if WebDAV not configured
+
+    remote_path = get_webdav_path(local_path)
+    url = WEBDAV_URL.rstrip("/") + remote_path
+
+    logger.info(f"Uploading to WebDAV: {local_path} -> {url}")
+
+    try:
+        auth = aiohttp.BasicAuth(WEBDAV_USERNAME, WEBDAV_PASSWORD)
+
+        async with aiohttp.ClientSession(auth=auth) as session:
+            # Create parent directories (MKCOL)
+            parent_path = "/".join(remote_path.split("/")[:-1])
+            if parent_path:
+                await _ensure_webdav_dirs(session, parent_path)
+
+            # Upload file (PUT)
+            async with aiofiles.open(local_path, "rb") as f:
+                content = await f.read()
+
+            async with session.put(url, data=content) as resp:
+                if resp.status in (200, 201, 204):
+                    logger.info(f"Successfully uploaded to WebDAV: {remote_path}")
+                    return True, None
+                else:
+                    error = f"WebDAV upload failed: HTTP {resp.status}"
+                    logger.error(error)
+                    return False, error
+
+    except Exception as e:
+        error = f"WebDAV upload error: {e}"
+        logger.error(error)
+        return False, error
+
+
+async def _ensure_webdav_dirs(session: aiohttp.ClientSession, path: str):
+    """
+    Ensure WebDAV directories exist (recursive MKCOL).
+
+    Args:
+        session: aiohttp session with auth
+        path: Directory path like /channel/-1001234
+    """
+    parts = path.strip("/").split("/")
+    current = ""
+
+    for part in parts:
+        if not part:
+            continue
+        current += "/" + part
+        url = WEBDAV_URL.rstrip("/") + current
+
+        try:
+            async with session.request("MKCOL", url) as resp:
+                # 201 = created, 405 = already exists, 409 = conflict (parent missing)
+                if resp.status not in (201, 405, 409):
+                    logger.warning(f"MKCOL {current} returned {resp.status}")
+        except Exception as e:
+            logger.warning(f"MKCOL {current} failed: {e}")

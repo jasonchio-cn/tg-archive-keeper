@@ -11,6 +11,7 @@ Telegram 归档管理器，自动下载、去重、分类存储转发的消息�
   - 大文件（>20MB）：使用 tdl 客户端下载
 - **任务队列**：SQLite 实现的可靠任务队列，支持失败重试
 - **Markdown 日志**：按月归档所有操作记录
+- **WebDAV 支持**：可选上传到 WebDAV 服务器（如 Nextcloud、AList 等）
 
 ## 架构
 
@@ -24,7 +25,7 @@ Telegram 归档管理器，自动下载、去重、分类存储转发的消息�
          └──────────┬───────────┘
                     ▼
               ┌──────────┐
-              │  /data   │
+              │  /data   │──────▶ WebDAV (可选)
               │ (SQLite) │
               └──────────┘
 ```
@@ -48,6 +49,11 @@ cp .env.example .env
 ```bash
 BOT_TOKEN=your_bot_token_here
 USER_ID=your_user_id_here
+
+# WebDAV (可选)
+WEBDAV_URL=https://your-webdav-server.com/dav/telegram
+WEBDAV_USERNAME=your_username
+WEBDAV_PASSWORD=your_password
 ```
 
 ### 3. 初始化 tdl 会话
@@ -101,6 +107,9 @@ data/
 | `FILE_SIZE_THRESHOLD` | 文件大小阈值（字节） | 20971520 |
 | `MAX_ATTEMPTS` | 最大重试次数 | 8 |
 | `STALE_JOB_MINUTES` | 任务超时时间（分钟） | 30 |
+| `WEBDAV_URL` | WebDAV 服务器地址 | 空（禁用） |
+| `WEBDAV_USERNAME` | WebDAV 用户名 | 空 |
+| `WEBDAV_PASSWORD` | WebDAV 密码 | 空 |
 
 ## 故障排查
 

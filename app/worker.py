@@ -230,6 +230,11 @@ async def process_job(job: dict):
             actual_size = target_path.stat().st_size
             sha256 = await fm.calculate_sha256(target_path)
 
+            # Upload to WebDAV if enabled
+            webdav_success, webdav_error = await fm.upload_to_webdav(target_path)
+            if not webdav_success:
+                logger.warning(f"WebDAV upload failed: {webdav_error}")
+
             # Update database
             await db.update_file_downloaded(
                 file_id=file_id,

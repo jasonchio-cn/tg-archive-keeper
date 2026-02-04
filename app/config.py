@@ -32,6 +32,12 @@ FILES_PATH = Path(os.getenv("FILES_PATH", "/data/files"))
 NOTES_PATH = Path(os.getenv("NOTES_PATH", "/data/notes"))
 TASK_DB_PATH = DB_PATH.parent
 
+# WebDAV settings (optional)
+WEBDAV_URL = os.getenv("WEBDAV_URL", "")  # e.g., https://dav.example.com/files
+WEBDAV_USERNAME = os.getenv("WEBDAV_USERNAME", "")
+WEBDAV_PASSWORD = os.getenv("WEBDAV_PASSWORD", "")
+WEBDAV_ENABLED = bool(WEBDAV_URL and WEBDAV_USERNAME and WEBDAV_PASSWORD)
+
 # Ensure directories exist
 for path in [TASK_DB_PATH, LOG_PATH, FILES_PATH, NOTES_PATH]:
     path.mkdir(parents=True, exist_ok=True)
