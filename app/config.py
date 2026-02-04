@@ -38,6 +38,30 @@ WEBDAV_USERNAME = os.getenv("WEBDAV_USERNAME", "")
 WEBDAV_PASSWORD = os.getenv("WEBDAV_PASSWORD", "")
 WEBDAV_ENABLED = bool(WEBDAV_URL and WEBDAV_USERNAME and WEBDAV_PASSWORD)
 
-# Ensure directories exist
-for path in [TASK_DB_PATH, LOG_PATH, FILES_PATH, NOTES_PATH]:
-    path.mkdir(parents=True, exist_ok=True)
+# Storage mode: local, webdav, or both (comma-separated)
+# Examples: "local", "webdav", "local,webdav"
+_STORAGE_MODE = os.getenv("STORAGE_MODE", "local").lower()
+STORAGE_MODES = [m.strip() for m in _STORAGE_MODE.split(",") if m.strip()]
+
+# Validate storage mode
+SAVE_TO_LOCAL = "local" in STORAGE_MODES
+SAVE_TO_WEBDAV = "webdav" in STORAGE_MODES
+
+# If webdav is selected but not configured, fall back to local
+if SAVE_TO_WEBDAV and not WEBDAV_ENABLED:
+    SAVE_TO_WEBDAV = False
+    if not SAVE_TO_LOCAL:
+        SAVE_TO_LOCAL = True  # Must have at least one storage
+
+# Ensure at least one storage mode is enabled
+if not SAVE_TO_LOCAL and not SAVE_TO_WEBDAV:
+    SAVE_TO_LOCAL = True
+
+# Ensure directories exist (only if saving locally)
+if SAVE_TO_LOCAL:
+    for path in [TASK_DB_PATH, LOG_PATH, FILES_PATH, NOTES_PATH]:
+        path.mkdir(parents=True, exist_ok=True)
+else:
+    # Still need task_db and logs locally
+    for path in [TASK_DB_PATH, LOG_PATH, NOTES_PATH]:
+        path.mkdir(parents=True, exist_ok=True)

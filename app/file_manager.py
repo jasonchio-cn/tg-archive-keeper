@@ -14,6 +14,8 @@ from app.config import (
     WEBDAV_USERNAME,
     WEBDAV_PASSWORD,
     WEBDAV_ENABLED,
+    SAVE_TO_LOCAL,
+    SAVE_TO_WEBDAV,
 )
 
 logger = logging.getLogger(__name__)
@@ -253,3 +255,42 @@ async def _ensure_webdav_dirs(session: aiohttp.ClientSession, path: str):
                     logger.warning(f"MKCOL {current} returned {resp.status}")
         except Exception as e:
             logger.warning(f"MKCOL {current} failed: {e}")
+
+
+async def save_file(
+    local_path: Path, delete_local_after_webdav: bool = True
+) -> Tuple[bool, Optional[str]]:
+    """
+    Save file according to configured storage mode.
+
+    Args:
+        local_path: Local file path (file must exist)
+        delete_local_after_webdav: If True and only webdav mode, delete local file after upload
+
+    Returns:
+        (success, error_message)
+    """
+    errors = []
+
+    # Upload to WebDAV if enabled
+    if SAVE_TO_WEBDAV:
+        webdav_success, webdav_error = await upload_to_webdav(local_path)
+        if not webdav_success:
+            errors.append(f"WebDAV: {webdav_error}")
+
+    # Handle local storage
+    if SAVE_TO_LOCAL:
+        # Keep local file
+        logger.info(f"File saved locally: {local_path}")
+    elif SAVE_TO_WEBDAV and delete_local_after_webdav:
+        # Only WebDAV mode - delete local file after successful upload
+        if not errors:  # WebDAV upload succeeded
+            try:
+                local_path.unlink()
+                logger.info(f"Deleted local file after WebDAV upload: {local_path}")
+            except Exception as e:
+                logger.warning(f"Failed to delete local file: {e}")
+
+    if errors:
+        return False, "; ".join(errors)
+    return True, None

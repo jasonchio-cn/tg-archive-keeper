@@ -50,7 +50,10 @@ cp .env.example .env
 BOT_TOKEN=your_bot_token_here
 USER_ID=your_user_id_here
 
-# WebDAV (可选)
+# 存储模式: local, webdav, 或 local,webdav (同时保存)
+STORAGE_MODE=local
+
+# WebDAV (当 STORAGE_MODE 包含 webdav 时必填)
 WEBDAV_URL=https://your-webdav-server.com/dav/telegram
 WEBDAV_USERNAME=your_username
 WEBDAV_PASSWORD=your_password
@@ -107,7 +110,8 @@ data/
 | `FILE_SIZE_THRESHOLD` | 文件大小阈值（字节） | 20971520 |
 | `MAX_ATTEMPTS` | 最大重试次数 | 8 |
 | `STALE_JOB_MINUTES` | 任务超时时间（分钟） | 30 |
-| `WEBDAV_URL` | WebDAV 服务器地址 | 空（禁用） |
+| `STORAGE_MODE` | 存储模式：`local`/`webdav`/`local,webdav` | local |
+| `WEBDAV_URL` | WebDAV 服务器地址 | 空 |
 | `WEBDAV_USERNAME` | WebDAV 用户名 | 空 |
 | `WEBDAV_PASSWORD` | WebDAV 密码 | 空 |
 
