@@ -195,6 +195,33 @@ async def insert_message_file(
         await db.commit()
 
 
+async def upsert_file(
+    file_unique_id: str,
+    last_seen_file_id: str,
+    file_size: Optional[int] = None,
+    mime_type: Optional[str] = None,
+    original_name: Optional[str] = None,
+) -> int:
+    """Insert or update a file, return file_id."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("PRAGMA foreign_keys=ON")
+        cursor = await db.execute(
+            """
+            INSERT INTO files (file_unique_id, last_seen_file_id, file_size, mime_type, original_name)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(file_unique_id) 
+            DO UPDATE SET 
+                last_seen_file_id=excluded.last_seen_file_id,
+                updated_at=datetime('now')
+            RETURNING id
+            """,
+            (file_unique_id, last_seen_file_id, file_size, mime_type, original_name),
+        )
+        row = await cursor.fetchone()
+        await db.commit()
+        return row[0]
+
+
 async def update_file_downloaded(
     file_id: int, local_path: str, local_size: int, sha256: Optional[str] = None
 ):
