@@ -18,6 +18,7 @@ services:
       - /root/appdata/tg-archive-keeper/files:/data/files
       - /root/appdata/tg-archive-keeper/notes:/data/notes
       - /root/appdata/tg-archive-keeper/logs:/data/logs
+      - /root/appdata/tg-archive-keeper/tdl_session:/root/.tdl
     networks:
       - tg-archive
     logging:
