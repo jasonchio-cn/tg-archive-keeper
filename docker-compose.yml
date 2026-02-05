@@ -1,18 +1,15 @@
-version: '3.8'
-
 services:
-  tg-archive-keeper:
+  bot:
     image: jasonchio/tg-archive-keeper:latest
     container_name: tg-archive-keeper
+    hostname: tg-archive-keeper
     restart: unless-stopped
     environment:
       TZ: Asia/Shanghai
-      BOT_TOKEN: your_bot_token_here
-      # Download settings
+      BOT_TOKEN: 
+      TDL_STORAGE: '{"type":"bolt","path":"/root/.tdl"}'
       MAX_CONCURRENT_DOWNLOADS: 4
-      # Storage mode: local, webdav, or local,webdav
-      STORAGE_MODE: local
-      # WebDAV settings (required if STORAGE_MODE includes webdav)
+      STORAGE_MODE: webdav
       WEBDAV_URL: 
       WEBDAV_USERNAME: 
       WEBDAV_PASSWORD: 
@@ -21,13 +18,11 @@ services:
       - /root/appdata/tg-archive-keeper/files:/data/files
       - /root/appdata/tg-archive-keeper/notes:/data/notes
       - /root/appdata/tg-archive-keeper/logs:/data/logs
-      - /root/appdata/tg-archive-keeper/tdl_session:/root/.tdl
     networks:
       - tg-archive
     logging:
       driver: json-file
       options:
         max-size: 100m
-
 networks:
-  tg-archive:
+  tg-archive: {}

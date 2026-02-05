@@ -44,34 +44,24 @@ Telegram 归档管理器，自动下载、去重、分类存储转发的消息�
 
 ### 2. 配置
 
-```bash
-cp .env.example .env
-```
+编辑 `docker-compose.yml` 文件，设置以下环境变量：
 
-编辑 `.env`：
-
-```bash
-BOT_TOKEN=your_bot_token_here
-
-# Download settings
-MAX_CONCURRENT_DOWNLOADS=4  # 默认同时最多4个下载任务
-
-# Storage mode: local, webdav, or local,webdav (both)
-STORAGE_MODE=local
-
-# WebDAV (当 STORAGE_MODE 包含 webdav 时必填)
-WEBDAV_URL=https://your-webdav-server.com/dav/telegram
-WEBDAV_USERNAME=your_username
-WEBDAV_PASSWORD=your_password
+```yaml
+environment:
+  BOT_TOKEN: your_bot_token_here
+  MAX_CONCURRENT_DOWNLOADS: 4
+  STORAGE_MODE: webdav  # 可选值: local, webdav, 或 local,webdav
+  WEBDAV_URL: https://your-webdav-server.com/dav/telegram
+  WEBDAV_USERNAME: your_username
+  WEBDAV_PASSWORD: your_password
 ```
 
 ### 3. 初始化 tdl 会话
 
-```bash
-mkdir -p data/tdl_session
+登录容器，输入命令：
 
-docker run -it --rm -v $(pwd)/data/tdl_session:/root/.tdl \
-  ghcr.io/iyear/tdl:latest login
+```bash
+docker exec -it tg-archive-keeper tdl login -T qr
 ```
 
 ### 4. 启动服务
@@ -98,7 +88,6 @@ docker-compose logs -f
 data/
 ├── task_db/
 │   └── app.db          # SQLite 数据库
-├── tdl_session/        # tdl 会话
 ├── logs/               # 日志
 ├── files/              # 下载的文件
 │   └── <source_type>/<source_id>_<title>/
@@ -112,8 +101,9 @@ data/
 | 变量 | 说明 | 默认值 |
 |------|------|--------|
 | `BOT_TOKEN` | Telegram Bot Token | 必填 |
+| `TDL_STORAGE` | tdl 会话存储配置 | `{"type":"bolt","path":"/root/.tdl"}` |
 | `MAX_CONCURRENT_DOWNLOADS` | 最大并发下载数 | 4 |
-| `STORAGE_MODE` | 存储模式：`local`/`webdav`/`local,webdav` | local |
+| `STORAGE_MODE` | 存储模式：`local`/`webdav`/`local,webdav` | webdav |
 | `WEBDAV_URL` | WebDAV 服务器地址 | 空 |
 | `WEBDAV_USERNAME` | WebDAV 用户名 | 空 |
 | `WEBDAV_PASSWORD` | WebDAV 密码 | 空 |
@@ -154,8 +144,7 @@ docker-compose exec tg-archive-keeper sqlite3 /data/task_db/app.db "SELECT * FRO
 docker-compose logs | grep "tdl failed"
 
 # 重新登录 tdl
-docker run -it --rm -v $(pwd)/data/tdl_session:/root/.tdl \
-  ghcr.io/iyear/tdl:latest login
+docker exec -it tg-archive-keeper tdl login -T qr
 ```
 
 ## 开发
