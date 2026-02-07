@@ -24,13 +24,26 @@ logger = logging.getLogger(__name__)
 
 def sanitize_filename(name: str, max_length: int = 64) -> str:
     """
-    Sanitize filename to only allow [A-Za-z0-9._-].
+    Sanitize filename to keep original name as much as possible.
+    Removes emoji and unsafe special symbols but keeps Chinese characters,
+    Latin letters, numbers, and safe symbols (._-).
     """
     if not name:
         return ""
 
+    # Replace spaces with underscores
     name = name.replace(" ", "_")
-    name = re.sub(r"[^A-Za-z0-9._-]", "", name)
+
+    # Remove emoji and other special Unicode characters while preserving Chinese, letters, numbers, and safe symbols
+    # This regex keeps:
+    # - Chinese characters (Unicode range \u4e00-\u9fff)
+    # - Latin letters (A-Za-z)
+    # - Numbers (0-9)
+    # - Common safe symbols (._-)
+    # - Other common punctuation that might be in filenames
+    name = re.sub(r"[^\u4e00-\u9fffA-Za-z0-9._\-]", "", name)
+
+    # Clean up multiple underscores
     name = re.sub(r"_+", "_", name)
     name = name.strip("_.")
 

@@ -13,6 +13,19 @@ if not _BOT_TOKEN:
 
 BOT_TOKEN: str = _BOT_TOKEN
 
+# Bot polling/network stability settings
+# - BOT_GETUPDATES_TIMEOUT: Telegram getUpdates long-poll wait time (seconds)
+# - BOT_*_TIMEOUT: HTTP client timeouts (seconds)
+# - BOT_POLL_INTERVAL: sleep between polling requests (seconds)
+BOT_POLL_INTERVAL = float(os.getenv("BOT_POLL_INTERVAL", "1.0"))
+BOT_GETUPDATES_TIMEOUT = int(os.getenv("BOT_GETUPDATES_TIMEOUT", "30"))
+
+BOT_CONNECT_TIMEOUT = float(os.getenv("BOT_CONNECT_TIMEOUT", "10"))
+# Keep this >= BOT_GETUPDATES_TIMEOUT + a buffer, and high enough for large downloads.
+BOT_READ_TIMEOUT = float(os.getenv("BOT_READ_TIMEOUT", "90"))
+BOT_WRITE_TIMEOUT = float(os.getenv("BOT_WRITE_TIMEOUT", "30"))
+BOT_POOL_TIMEOUT = float(os.getenv("BOT_POOL_TIMEOUT", "5"))
+
 # Download settings
 MAX_CONCURRENT_DOWNLOADS = int(os.getenv("MAX_CONCURRENT_DOWNLOADS", "4"))
 

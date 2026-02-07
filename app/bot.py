@@ -9,7 +9,7 @@ from pathlib import Path
 
 from telegram import Update, Message, Bot
 from telegram.ext import Application, MessageHandler, filters, ContextTypes
-from telegram.error import TelegramError
+from telegram.error import TelegramError, NetworkError, TimedOut
 
 from app import config
 from app import database as db
@@ -30,11 +30,40 @@ logger = logging.getLogger(__name__)
 # Suppress noisy httpx logs
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
+# Reduce noisy PTB polling logs; we'll surface key info ourselves.
+logging.getLogger("telegram.ext.Updater").setLevel(logging.WARNING)
+
 # Download semaphore for concurrency control
 download_semaphore = asyncio.Semaphore(config.MAX_CONCURRENT_DOWNLOADS)
 
 # Track background tasks
 background_tasks: set = set()
+
+
+# ============ Error Handling ==========
+
+
+_last_network_error_log_ts: float = 0.0
+
+
+async def on_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Global PTB error handler.
+
+    Primary goal: make transient network errors less noisy while keeping
+    unexpected exceptions visible.
+    """
+
+    err = context.error
+    if isinstance(err, (NetworkError, TimedOut)):
+        # Throttle repetitive polling errors to avoid log spam.
+        now = asyncio.get_running_loop().time()
+        global _last_network_error_log_ts
+        if now - _last_network_error_log_ts >= 60:
+            _last_network_error_log_ts = now
+            logger.warning("Telegram network error (will retry automatically): %s", err)
+        return
+
+    logger.error("Unhandled exception in PTB", exc_info=err)
 
 
 # ============ Download Functions ============
@@ -183,7 +212,9 @@ async def process_download_job(
                     file_unique_id=file_record["file_unique_id"],
                     local_path=str(target_path),
                     local_size=actual_size,
-                    method=method,
+                    method=method or "unknown",
+                    received_at=message.get("received_at")
+                    or (datetime.utcnow().isoformat() + "Z"),
                 )
             else:
                 # Record failure
@@ -634,15 +665,39 @@ def main():
     logger.info("Starting Telegram Archive Keeper")
 
     application = (
-        Application.builder().token(config.BOT_TOKEN).post_init(post_init).build()
+        Application.builder()
+        .token(config.BOT_TOKEN)
+        .post_init(post_init)
+        # Increase tolerance for unstable networks.
+        # Note: getUpdates long-poll `timeout` is configured in run_polling.
+        .connect_timeout(config.BOT_CONNECT_TIMEOUT)
+        .read_timeout(config.BOT_READ_TIMEOUT)
+        .write_timeout(config.BOT_WRITE_TIMEOUT)
+        .pool_timeout(config.BOT_POOL_TIMEOUT)
+        .get_updates_connect_timeout(config.BOT_CONNECT_TIMEOUT)
+        .get_updates_read_timeout(config.BOT_READ_TIMEOUT)
+        .get_updates_write_timeout(config.BOT_WRITE_TIMEOUT)
+        .get_updates_pool_timeout(config.BOT_POOL_TIMEOUT)
+        .build()
     )
 
     application.add_handler(
         MessageHandler(filters.ALL & ~filters.COMMAND, handle_message)
     )
 
+    application.add_error_handler(on_error)
+
     logger.info("Bot is running...")
-    application.run_polling(allowed_updates=Update.ALL_TYPES)
+
+    # Long polling settings:
+    # - poll_interval: sleep between requests, helps reduce churn
+    # - timeout: server-side long poll duration (getUpdates timeout)
+    application.run_polling(
+        allowed_updates=Update.ALL_TYPES,
+        poll_interval=config.BOT_POLL_INTERVAL,
+        timeout=config.BOT_GETUPDATES_TIMEOUT,
+        bootstrap_retries=-1,
+    )
 
 
 if __name__ == "__main__":
