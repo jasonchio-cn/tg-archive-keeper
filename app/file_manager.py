@@ -1,8 +1,10 @@
 """File management utilities."""
 
 import asyncio
+from asyncio import sleep
 import re
 import hashlib
+import xml.etree.ElementTree as ET
 import aiofiles
 import aiohttp
 from pathlib import Path
@@ -255,6 +257,35 @@ def get_webdav_path(local_path: Path) -> str:
         return "/" + local_path.name
 
 
+async def archive_file_exists(local_path: Path, expected_size: Optional[int]) -> bool:
+    """Check every configured destination. An inconclusive probe raises an error."""
+    if SAVE_TO_WEBDAV:
+        url = WEBDAV_URL.rstrip("/") + get_webdav_path(local_path)
+        auth = aiohttp.BasicAuth(WEBDAV_USERNAME, WEBDAV_PASSWORD)
+        body = b'<propfind xmlns="DAV:"><prop><getcontentlength/></prop></propfind>'
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=15)) as session:
+            async with session.request(
+                "PROPFIND", url, auth=auth, data=body, allow_redirects=False,
+                headers={"Depth": "0", "Content-Type": "application/xml"},
+            ) as response:
+                if response.status == 404:
+                    return False
+                if response.status != 207:
+                    raise ValueError(f"WebDAV PROPFIND returned HTTP {response.status}")
+                root = ET.fromstring(await response.read())
+        for prop in root.findall("{DAV:}response/{DAV:}propstat"):
+            status = prop.findtext("{DAV:}status", "").split()
+            length = prop.findtext("{DAV:}prop/{DAV:}getcontentlength")
+            if status[1:2] == ["200"] and length is not None:
+                remote_size = int(length)
+                if expected_size is not None and remote_size != expected_size:
+                    return False
+                break
+        else:
+            raise ValueError("WebDAV did not confirm the file size")
+    return not SAVE_TO_LOCAL or await verify_file(local_path, expected_size)
+
+
 async def upload_to_webdav(local_path: Path) -> Tuple[bool, Optional[str]]:
     """
     Upload file to WebDAV server.
@@ -277,14 +308,11 @@ async def upload_to_webdav(local_path: Path) -> Tuple[bool, Optional[str]]:
                 await _ensure_webdav_dirs(session, parent_path)
 
             # Upload file
-            async with aiofiles.open(local_path, "rb") as f:
-                content = await f.read()
-
-            async with session.put(url, data=content) as resp:
-                if resp.status in (200, 201, 204):
-                    logger.info(f"WebDAV upload successful: {remote_path}")
-                    return True, None
-                else:
+            with local_path.open("rb") as content:
+                async with session.put(url, data=content) as resp:
+                    if resp.status in (200, 201, 204):
+                        logger.info(f"WebDAV upload successful: {remote_path}")
+                        return True, None
                     error = f"WebDAV upload failed: HTTP {resp.status}"
                     logger.error(error)
                     return False, error
@@ -327,6 +355,12 @@ async def save_file(
     # Upload to WebDAV if enabled
     if SAVE_TO_WEBDAV:
         webdav_success, webdav_error = await upload_to_webdav(local_path)
+        for delay in (2, 4, 8):
+            if webdav_success:
+                break
+            logger.warning("Retrying WebDAV upload in %s seconds: %s", delay, webdav_error)
+            await sleep(delay)
+            webdav_success, webdav_error = await upload_to_webdav(local_path)
         if not webdav_success:
             errors.append(f"WebDAV: {webdav_error}")
 

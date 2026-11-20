@@ -240,6 +240,24 @@ async def update_file_downloaded(
         await db.commit()
 
 
+async def record_storage_failure(
+    job_id: int, file_id: int, local_path: str, local_size: int, sha256: str, error: str
+):
+    """Fail the archive job and retain the downloaded file's metadata together."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            """UPDATE files SET status='FAILED', local_path=?, local_size=?, sha256=?,
+                      updated_at=datetime('now') WHERE id=?""",
+            (local_path, local_size, sha256, file_id),
+        )
+        await db.execute(
+            """UPDATE jobs SET status='FAILED', error=?, completed_at=datetime('now')
+               WHERE id=?""",
+            (error, job_id),
+        )
+        await db.commit()
+
+
 async def update_file_failed(file_id: int):
     """Mark a file as failed."""
     async with aiosqlite.connect(DB_PATH) as db:

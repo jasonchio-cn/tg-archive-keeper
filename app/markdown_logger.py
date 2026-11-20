@@ -166,9 +166,10 @@ async def append_job_failed(
     message_id: int,
     file_unique_id: str,
     error_type: Optional[str],
-    bot_api_error: Optional[str],
-    tdl_error: Optional[str],
+    bot_api_error: Optional[str] = None,
+    tdl_error: Optional[str] = None,
     received_at: str = None,
+    storage_error: Optional[str] = None,
 ):
     """
     Append a job failure entry to markdown log.
@@ -177,7 +178,7 @@ async def append_job_failed(
         job_id: Job ID
         message_id: Related message ID
         file_unique_id: File unique ID
-        error_type: "BOT_API_ONLY" | "TDL_ONLY" | "BOTH_FAILED"
+        error_type: "BOT_API_ONLY" | "TDL_ONLY" | "BOTH_FAILED" | "STORAGE_FAILED"
         bot_api_error: Bot API error message
         tdl_error: tdl error message
         received_at: Original message timestamp
@@ -199,6 +200,8 @@ async def append_job_failed(
         lines.append(f"- bot_api_error: {bot_api_error}")
     if tdl_error:
         lines.append(f"- tdl_error: {tdl_error}")
+    if storage_error:
+        lines.append(f"\n- storage_error: {storage_error}")
 
     lines.append("\n\n")
 

@@ -3,6 +3,8 @@
 import asyncio
 import json
 import logging
+from xml.etree.ElementTree import ParseError
+from aiohttp import ClientError
 from datetime import datetime
 from typing import Optional, List, Dict, Any, Tuple
 from pathlib import Path
@@ -193,7 +195,22 @@ async def process_download_job(
                 actual_size = target_path.stat().st_size
                 sha256 = await fm.calculate_sha256(target_path)
 
-                await fm.save_file(target_path)
+                saved, storage_error = await fm.save_file(target_path)
+                if not saved:
+                    reason = storage_error or "File storage failed"
+                    await db.record_storage_failure(
+                        job_id, file_id, str(target_path), actual_size, sha256, reason
+                    )
+                    logger.error("Job %s failed to archive %s: %s", job_id, target_path, reason)
+                    await md.append_job_failed(
+                        job_id=job_id,
+                        message_id=message_id,
+                        file_unique_id=file_record["file_unique_id"],
+                        error_type="STORAGE_FAILED",
+                        storage_error=reason,
+                        received_at=message["received_at"],
+                    )
+                    return
 
                 await db.update_file_downloaded(
                     file_id=file_id,
@@ -557,7 +574,17 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 and file_record["local_path"]
             ):
                 local_path = Path(file_record["local_path"])
-                if await fm.verify_file(local_path):
+                try:
+                    archived = await fm.archive_file_exists(local_path, file_record["local_size"])
+                except (OSError, ValueError, ClientError, ParseError) as exc:
+                    logger.warning("Archive check failed for %s: %s", file_unique_id, exc)
+                    attachments.append({
+                        "kind": file_info["kind"], "original_name": file_info["original_name"],
+                        "file_size": file_info["file_size"], "file_unique_id": file_unique_id,
+                        "status": "ARCHIVE_CHECK_FAILED",
+                    })
+                    continue
+                if archived:
                     logger.info(f"File {file_unique_id} already downloaded, skipping")
                     attachments.append(
                         {
